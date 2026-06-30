@@ -6,6 +6,8 @@ export default function Register({ setSession }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [adminSetupToken, setAdminSetupToken] = useState(process.env.REACT_APP_ADMIN_SETUP_TOKEN || 'quiz-admin-setup');
+  const [isAdmin, setIsAdmin] = useState(false);
   const [err, setErr] = useState('');
   const navigate = useNavigate();
 
@@ -18,7 +20,9 @@ export default function Register({ setSession }) {
     e.preventDefault();
     setErr('');
     try {
-      const res = await axios.post('/auth/register', { name, email, password });
+      const endpoint = isAdmin ? '/auth/create-admin' : '/auth/register';
+      const payload = isAdmin ? { name, email, password, adminSetupToken } : { name, email, password };
+      const res = await axios.post(endpoint, payload);
       setSession(res.data.user, res.data.token);
       navigate('/dashboard');
     } catch (e) {
@@ -30,6 +34,11 @@ export default function Register({ setSession }) {
     <form style={form} onSubmit={onSubmit}>
       <h2>Register</h2>
       {err ? <div style={error}>{err}</div> : null}
+      <label style={{ marginBottom: 12 }}>
+        <input type="checkbox" checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} />
+        {' '}Register as admin
+      </label>
+      {isAdmin ? <input style={input} placeholder="Admin setup token" value={adminSetupToken} onChange={(e) => setAdminSetupToken(e.target.value)} /> : null}
       <input style={input} placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
       <input style={input} placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
       <input style={input} placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />

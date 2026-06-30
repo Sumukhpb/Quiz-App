@@ -33,9 +33,6 @@ const port = process.env.PORT || 5000;
 async function start() {
   await connectDB();
 
-  if (!redisClient.isOpen) {
-    await redisClient.connect();
-  }
   app.listen(port, () => {
     console.log(`Server listening on http://localhost:${port}`);
   });

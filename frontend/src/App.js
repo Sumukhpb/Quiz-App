@@ -5,10 +5,11 @@ import Navbar from './components/Navbar';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
+import AdminDashboard from './pages/AdminDashboard';
 import QuizPage from './pages/QuizPage';
 import Leaderboard from './pages/Leaderboard';
 
-axios.defaults.baseURL = process.env.REACT_APP_API_URL;
+axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 axios.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
@@ -53,6 +54,7 @@ function App() {
           <Route path="/login" element={<Login setSession={setSession} />} />
           <Route path="/register" element={<Register setSession={setSession} />} />
           <Route path="/dashboard" element={auth.user ? <Dashboard user={auth.user} /> : <Navigate to="/login" />} />
+          <Route path="/admin" element={auth.user?.role === 'admin' ? <AdminDashboard user={auth.user} /> : <Navigate to="/dashboard" />} />
           <Route path="/quiz/:quizId" element={auth.user ? <QuizPage user={auth.user} /> : <Navigate to="/login" />} />
           <Route path="/leaderboard/:quizId" element={auth.user ? <Leaderboard /> : <Navigate to="/login" />} />
         </Routes>

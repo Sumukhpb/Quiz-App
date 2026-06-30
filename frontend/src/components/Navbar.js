@@ -40,6 +40,7 @@ export default function Navbar({ user, onLogout }) {
         {user ? (
           <>
             <Link to="/dashboard" style={linkStyle}>Dashboard</Link>
+            {user?.role === 'admin' ? <Link to="/admin" style={linkStyle}>Admin</Link> : null}
             <button
               style={buttonStyle}
               onClick={() => {
