@@ -3,6 +3,7 @@ const Quiz = require('../models/Quiz');
 const Question = require('../models/Question');
 const auth = require('../middleware/auth');
 const allowRoles = require('../middleware/role');
+const { generateQuestions } = require('../utils/ai');
 
 const router = express.Router();
 
@@ -42,11 +43,43 @@ router.post('/:quizId/questions/bulk', auth, allowRoles('admin'), async (req, re
         return res.status(400).json({ message: 'Invalid correctOptionIndex' });
       }
     }
-    const docs = questions.map((q) => ({ quiz: quizId, text: q.text, options: q.options, correctOptionIndex: q.correctOptionIndex }));
+    const docs = questions.map((q) => ({
+      quiz: quizId,
+      text: q.text,
+      options: q.options.map((option) => (typeof option === 'string' ? { text: option } : option)),
+      correctOptionIndex: q.correctOptionIndex,
+      explanation: q.explanation || ''
+    }));
     const created = await Question.insertMany(docs);
     res.status(201).json({ inserted: created.length });
   } catch (err) {
     console.error('Bulk questions error', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.post('/:quizId/questions/ai-generate', auth, allowRoles('admin'), async (req, res) => {
+  try {
+    const { quizId } = req.params;
+    const { topic, count, difficulty } = req.body || {};
+
+    if (!topic) {
+      return res.status(400).json({ message: 'A topic is required to generate AI questions.' });
+    }
+
+    const generated = await generateQuestions({ topic, count, difficulty });
+    const docs = generated.map((q) => ({
+      quiz: quizId,
+      text: q.text,
+      options: q.options.map((option) => (typeof option === 'string' ? { text: option } : option)),
+      correctOptionIndex: q.correctOptionIndex,
+      explanation: q.explanation || ''
+    }));
+
+    const created = await Question.insertMany(docs);
+    res.status(201).json({ inserted: created.length, questions: generated });
+  } catch (err) {
+    console.error('AI generate questions error', err);
     res.status(500).json({ message: 'Server error' });
   }
 });

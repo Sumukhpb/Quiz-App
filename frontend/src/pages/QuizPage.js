@@ -104,9 +104,33 @@ export default function QuizPage({ user }) {
         <div style={{ marginTop: 16 }}>
           <h3>Result</h3>
           {result ? (
-            <div>
-              <p>Score: {result.score} / {result.totalQuestions}</p>
-              <p>Time used: {Math.round(result.durationSeconds / 60)} minutes</p>
+            <div style={{ display: 'grid', gap: 12 }}>
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 16 }}>
+                <p style={{ margin: '0 0 8px' }}>Score: {result.score} / {result.totalQuestions}</p>
+                <p style={{ margin: 0 }}>Time used: {Math.round(result.durationSeconds / 60)} minutes</p>
+              </div>
+
+              {result.review && (
+                <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 16, background: '#f8fafc' }}>
+                  <h4 style={{ marginTop: 0 }}>✨ AI Review</h4>
+                  <p style={{ marginTop: 0 }}>{result.review.summary}</p>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <div>
+                      <strong>Strengths</strong>
+                      <ul style={{ margin: '6px 0 0 18px' }}>
+                        {(result.review.strengths || []).map((item) => <li key={item}>{item}</li>)}
+                      </ul>
+                    </div>
+                    <div>
+                      <strong>Focus areas</strong>
+                      <ul style={{ margin: '6px 0 0 18px' }}>
+                        {(result.review.focusAreas || []).map((item) => <li key={item}>{item}</li>)}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <Link to={`/leaderboard/${quiz._id}`}>View Leaderboard</Link>
             </div>
           ) : (

@@ -5,7 +5,8 @@ const Question = require('../models/Question');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
 const allowRoles = require('../middleware/role');
-const redisClient = require('../config/redis');
+const { redisClient } = require('../config/redis');
+const { summarizeAttempt } = require('../utils/ai');
 
 const router = express.Router();
 
@@ -86,16 +87,35 @@ router.post('/:attemptId/submit', auth, allowRoles('student', 'admin'), async (r
     attempt.answers = evaluated;
     await attempt.save();
 
-    // Update leaderboard in Redis 
-    const leaderboardKey = `leaderboard:${attempt.quiz.toString()}`;
-    await redisClient.zAdd(leaderboardKey, [{ score, value: attempt.user.toString() }]);
+    // Update leaderboard in Redis when available
+    try {
+      const leaderboardKey = `leaderboard:${attempt.quiz.toString()}`;
+      if (redisClient.isOpen) {
+        await redisClient.zAdd(leaderboardKey, [{ score, value: attempt.user.toString() }]);
+      }
+    } catch (redisErr) {
+      console.warn('Leaderboard update skipped:', redisErr.message);
+    }
+
+    const questionDocsForReview = await Question.find({ quiz: attempt.quiz }).sort({ createdAt: 1 }).lean();
+    const review = await summarizeAttempt({
+      quizTitle: quiz.title,
+      questions: questionDocsForReview.map((q) => ({
+        ...q,
+        options: q.options.map((option) => ({ text: option.text }))
+      })),
+      answers: evaluated,
+      score,
+      totalQuestions: attempt.totalQuestions
+    });
 
     res.json({
       attemptId: attempt._id,
       score,
       totalQuestions: attempt.totalQuestions,
       durationSeconds,
-      submittedAt
+      submittedAt,
+      review
     });
   } catch (err) {
     console.error('Submit attempt error', err);

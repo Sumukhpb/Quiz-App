@@ -9,4 +9,16 @@ redisClient.on('error', (err) => console.error('Redis Client Error', err));
 redisClient.on('connect', () => console.log('Redis connecting...'));
 redisClient.on('ready', () => console.log('Redis ready'));
 
-module.exports = redisClient;
+async function connectRedis() {
+  if (!redisClient.isOpen) {
+    await redisClient.connect();
+  }
+}
+
+async function disconnectRedis() {
+  if (redisClient.isOpen) {
+    await redisClient.quit();
+  }
+}
+
+module.exports = { redisClient, connectRedis, disconnectRedis };

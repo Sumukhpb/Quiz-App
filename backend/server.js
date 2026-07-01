@@ -4,7 +4,7 @@ const cors = require('cors');
 const morgan = require('morgan');
 
 const connectDB = require('./config/db');
-const redisClient = require('./config/redis');
+const { redisClient, connectRedis } = require('./config/redis');
 
 const authRoutes = require('./routes/auth');
 const quizRoutes = require('./routes/quiz');
@@ -32,6 +32,12 @@ const port = process.env.PORT || 5000;
 
 async function start() {
   await connectDB();
+
+  // try {
+  //   await connectRedis();
+  // } catch (err) {
+  //   console.warn('Redis not available, continuing without leaderboard sync:', err.message);
+  // }
 
   app.listen(port, () => {
     console.log(`Server listening on http://localhost:${port}`);
