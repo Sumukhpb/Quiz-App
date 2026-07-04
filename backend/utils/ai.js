@@ -1,4 +1,4 @@
-const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-3.5-turbo';
 
 function normalizeOptions(options) {
   return (options || []).map((option) => {
@@ -8,23 +8,70 @@ function normalizeOptions(options) {
   });
 }
 
+function extractJson(text) {
+  if (!text || typeof text !== 'string') return null;
+  const trimmed = text.trim();
+
+  const parseCandidate = (candidate) => {
+    try {
+      return JSON.parse(candidate);
+    } catch (err) {
+      return null;
+    }
+  };
+
+  const direct = parseCandidate(trimmed);
+  if (direct) return direct;
+
+  const codeFence = trimmed.match(/```(?:json)?\s*([\s\S]*)\s*```$/i);
+  if (codeFence && codeFence[1]) {
+    const parsed = parseCandidate(codeFence[1].trim());
+    if (parsed) return parsed;
+  }
+
+  const firstArrayStart = trimmed.indexOf('[');
+  const lastArrayEnd = trimmed.lastIndexOf(']');
+  if (firstArrayStart !== -1 && lastArrayEnd !== -1 && lastArrayEnd > firstArrayStart) {
+    const parsed = parseCandidate(trimmed.slice(firstArrayStart, lastArrayEnd + 1));
+    if (parsed) return parsed;
+  }
+
+  const firstObjectStart = trimmed.indexOf('{');
+  const lastObjectEnd = trimmed.lastIndexOf('}');
+  if (firstObjectStart !== -1 && lastObjectEnd !== -1 && lastObjectEnd > firstObjectStart) {
+    const parsed = parseCandidate(trimmed.slice(firstObjectStart, lastObjectEnd + 1));
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
+
 function makeFallbackQuestions({ topic, count, difficulty }) {
   const safeTopic = (topic || 'the quiz topic').trim();
   const safeCount = Math.max(1, Math.min(8, Number(count) || 4));
   const safeDifficulty = difficulty || 'medium';
   const baseQuestions = [];
+  const templates = [
+    `Which statement best summarizes an important point about ${safeTopic}?`,
+    `What is a core concept related to ${safeTopic}?`,
+    `Which example most clearly illustrates ${safeTopic}?`,
+    `What is a common misconception about ${safeTopic}?`,
+    `Which phrase best describes the purpose of ${safeTopic}?`,
+    `What is an expected result of applying ${safeTopic}?`,
+    `Which idea is most closely connected to ${safeTopic}?`,
+    `What is the main benefit of understanding ${safeTopic}?`
+  ];
 
   for (let index = 0; index < safeCount; index += 1) {
-    const stem = `${safeTopic} — ${safeDifficulty} level`;
-    const questionText = `Which option best describes a key idea in ${stem}?`;
+    const questionText = templates[index % templates.length];
     const options = [
-      { text: `A practical concept related to ${safeTopic}` },
-      { text: `A common misconception about ${safeTopic}` },
-      { text: `An advanced example of ${safeTopic}` },
-      { text: `A follow-up challenge for ${safeTopic}` }
+      { text: `A clear concept related to ${safeTopic}` },
+      { text: `A common misunderstanding about ${safeTopic}` },
+      { text: `An application example of ${safeTopic}` },
+      { text: `A follow-up challenge involving ${safeTopic}` }
     ];
     const correctOptionIndex = 0;
-    const explanation = `The best answer is the option that clearly reflects a core principle of ${safeTopic}.`;
+    const explanation = `The correct answer is the option that most clearly reflects the main idea of ${safeTopic}.`;
     baseQuestions.push({ text: questionText, options, correctOptionIndex, explanation });
   }
 
@@ -45,10 +92,11 @@ async function callOpenAI(prompt) {
       body: JSON.stringify({
         model: DEFAULT_MODEL,
         temperature: 0.7,
+        max_tokens: 1200,
         messages: [
           {
             role: 'system',
-            content: 'You are a quiz assistant that returns strict JSON only.'
+            content: 'You are a quiz assistant that returns only valid JSON with no surrounding text.'
           },
           {
             role: 'user',
@@ -58,10 +106,18 @@ async function callOpenAI(prompt) {
       })
     });
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('OpenAI responded with error', response.status, errorText);
+      return null;
+    }
+
     const data = await response.json();
     const content = data?.choices?.[0]?.message?.content || '';
-    const parsed = JSON.parse(content);
+    const parsed = extractJson(content);
+    if (!parsed) {
+      console.error('OpenAI returned unparsable JSON:', content);
+    }
     return parsed;
   } catch (error) {
     console.error('OpenAI request failed, falling back to heuristic AI.', error.message);
@@ -70,11 +126,12 @@ async function callOpenAI(prompt) {
 }
 
 async function generateQuestions({ topic, count, difficulty }) {
-  const prompt = `Generate ${count || 4} multiple-choice quiz questions about "${topic || 'the provided topic'}" at ${difficulty || 'medium'} difficulty. Return strict JSON as an array of objects with fields: text, options (array of strings), correctOptionIndex, explanation.`;
+  const requestedCount = Math.max(1, Math.min(8, Number(count) || 4));
+  const prompt = `Generate exactly ${requestedCount} unique multiple-choice quiz questions about "${topic || 'the provided topic'}" at ${difficulty || 'medium'} difficulty. Return ONLY valid JSON in this exact format: [{"text": "...", "options": ["...", "...", "...", "..."], "correctOptionIndex": 0, "explanation": "..."}, ...]. Do not include any extra text outside the JSON array.`;
 
   const aiPayload = await callOpenAI(prompt);
-  if (Array.isArray(aiPayload) && aiPayload.length) {
-    return aiPayload.map((question) => ({
+  if (Array.isArray(aiPayload) && aiPayload.length >= requestedCount) {
+    return aiPayload.slice(0, requestedCount).map((question) => ({
       text: question.text,
       options: normalizeOptions(question.options),
       correctOptionIndex: Number(question.correctOptionIndex || 0),
@@ -82,7 +139,7 @@ async function generateQuestions({ topic, count, difficulty }) {
     }));
   }
 
-  return makeFallbackQuestions({ topic, count, difficulty });
+  return makeFallbackQuestions({ topic, count: requestedCount, difficulty });
 }
 
 function makeFallbackReview({ quizTitle, questions, answers, score, totalQuestions }) {
@@ -130,10 +187,29 @@ function makeFallbackReview({ quizTitle, questions, answers, score, totalQuestio
 }
 
 async function summarizeAttempt({ quizTitle, questions, answers, score, totalQuestions }) {
-  const prompt = `Summarize a quiz attempt for "${quizTitle || 'the quiz'}". The user scored ${score}/${totalQuestions}. Return strict JSON with fields: summary, strengths (array), focusAreas (array), questionReviews (array with questionText,isCorrect,yourAnswer,correctAnswer,explanation).`;
+  const questionsPayload = questions.map((question, index) => ({
+    number: index + 1,
+    text: question.text,
+    options: question.options.map((option, idx) => ({
+      index: idx,
+      text: option.text
+    })),
+    correctOptionIndex: question.correctOptionIndex
+  }));
+
+  const answersPayload = answers.map((answer) => ({
+    questionId: answer.question,
+    selectedIndex: answer.selectedIndex,
+    isCorrect: answer.isCorrect
+  }));
+
+  const prompt = `A student completed a quiz titled "${quizTitle || 'the quiz'}" and scored ${score}/${totalQuestions}. Here are the quiz questions and their options:\n${JSON.stringify(questionsPayload, null, 2)}\nThe student's answers are:\n${JSON.stringify(answersPayload, null, 2)}\nReturn strict JSON with fields: summary, strengths (array of short sentences), focusAreas (array of short sentences), questionReviews (array of objects with questionText, isCorrect, yourAnswer, correctAnswer, explanation).`;
 
   const aiPayload = await callOpenAI(prompt);
   if (aiPayload && typeof aiPayload === 'object') {
+    if (!aiPayload.summary && !aiPayload.questionReviews) {
+      console.warn('OpenAI returned no summary or reviews, using fallback.', aiPayload);
+    }
     return {
       summary: aiPayload.summary || `You scored ${score}/${totalQuestions} on ${quizTitle || 'this quiz'}.`,
       strengths: Array.isArray(aiPayload.strengths) ? aiPayload.strengths : [],
